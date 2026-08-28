@@ -36,7 +36,7 @@ jobs:
       - name: Setup Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ env.RUST_TARGET }}
+          targets: aarch64-linux-android
 
       # ------------------------------------------------------------
       # 2. Rust nightly：用于编译 aya-ebpf
@@ -274,15 +274,31 @@ jobs:
       # 因为前面已经生成 ebpf_target.o，所以 build.py 不会尝试走
       # Windows/WSL 的 eBPF 生成分支。
       # ------------------------------------------------------------
-      - name: Build module
+      - name: Set stable Rust for main project
         shell: bash
         run: |
           set -euo pipefail
 
           SRC="${GITHUB_WORKSPACE}/source"
 
-          echo "Source: ${SRC}"
-          echo "Build script: ${SRC}/build.py"
+          cd "${SRC}"
+
+          rustup override set stable
+
+          echo "Main project Rust:"
+          cargo --version
+          rustc --version
+
+          echo
+          echo "Installed Android targets:"
+          rustup target list --installed | grep -F "aarch64-linux-android"
+      
+      - name: Build module
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          SRC="${GITHUB_WORKSPACE}/source"
 
           test -f "${SRC}/build.py"
           test -f "${SRC}/ebpf_target.o"
