@@ -1,0 +1,301 @@
+```yaml
+name: Build Aether OptExt
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+env:
+  # Aether OptExt 的主程序要求 Android ARM64。
+  RUST_TARGET: aarch64-linux-android
+
+  # README 要求 eBPF 构建使用 LLVM 19。
+  # Rust 1.82 开始使用 LLVM 19，因此这里固定到该时代的 nightly，
+  # 避免当前 nightly 已经升级到 LLVM 23+ 后与旧版 bpf-linker/aya-ebpf 环境不匹配。
+  EBPF_TOOLCHAIN: nightly-2024-10-18
+
+  # 与 LLVM 19 兼容的 bpf-linker。
+  BPF_LINKER_VERSION: 0.9.13
+
+  # 目前 GitHub Ubuntu Runner 上可用且成熟的 NDK。
+  # Aether build.py 只要求标准 Android NDK clang 链接器。
+  ANDROID_NDK_VERSION: 28.2.13676358
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      # ------------------------------------------------------------
+      # 1. Rust stable：用于编译 Android 用户态主程序
+      # ------------------------------------------------------------
+      - name: Setup Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ env.RUST_TARGET }}
+
+      # ------------------------------------------------------------
+      # 2. Rust nightly：用于编译 aya-ebpf
+      #
+      # 额外安装 rust-src，因为 eBPF 构建使用：
+      #   -Zbuild-std=core
+      # ------------------------------------------------------------
+      - name: Setup Rust nightly for eBPF
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.EBPF_TOOLCHAIN }}
+          components: rust-src
+
+      # ------------------------------------------------------------
+      # 3. Android SDK / NDK
+      # ------------------------------------------------------------
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: ''
+
+      - name: Install Android NDK
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          sdkmanager "ndk;${ANDROID_NDK_VERSION}"
+
+          NDK_HOME="${ANDROID_SDK_ROOT}/ndk/${ANDROID_NDK_VERSION}"
+
+          if [[ ! -d "${NDK_HOME}" ]]; then
+            echo "::error::Android NDK was not installed at ${NDK_HOME}"
+            exit 1
+          fi
+
+          echo "ANDROID_NDK_HOME=${NDK_HOME}" >> "${GITHUB_ENV}"
+          echo "ANDROID_NDK_ROOT=${NDK_HOME}" >> "${GITHUB_ENV}"
+
+          echo "Installed NDK:"
+          "${NDK_HOME}/source.properties"
+
+      # ------------------------------------------------------------
+      # 4. Rust / Cargo 缓存
+      #
+      # 缓存：
+      #   ~/.cargo/registry
+      #   ~/.cargo/git
+      #   target/
+      #   ebpf/target/
+      #
+      # key 同时包含：
+      #   - Runner OS / 架构
+      #   - Rust toolchain
+      #   - NDK
+      #   - Cargo.toml / Cargo.lock
+      #   - eBPF Cargo.toml / config
+      #
+      # 这样依赖或工具链发生变化时不会错误复用旧产物。
+      # ------------------------------------------------------------
+      - name: Cache Rust build
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+            ebpf/target
+          key: >-
+            aether-optext-rust-
+            ${{ runner.os }}-
+            ${{ runner.arch }}-
+            stable-
+            ${{ env.RUST_TARGET }}-
+            nightly-${{ env.EBPF_TOOLCHAIN }}-
+            ndk-${{ env.ANDROID_NDK_VERSION }}-
+            ${{ hashFiles('Cargo.lock', 'Cargo.toml', 'ebpf/Cargo.toml', 'ebpf/.cargo/config.toml') }}
+          restore-keys: |
+            aether-optext-rust-${{ runner.os }}-${{ runner.arch }}-stable-${{ env.RUST_TARGET }}-nightly-${{ env.EBPF_TOOLCHAIN }}-ndk-${{ env.ANDROID_NDK_VERSION }}-
+
+      # ------------------------------------------------------------
+      # 5. 单独缓存 bpf-linker
+      #
+      # 不缓存整个 ~/.cargo/bin，避免把 rustup/cargo 的其他 shim
+      # 一并塞进缓存。
+      # ------------------------------------------------------------
+      - name: Cache bpf-linker
+        uses: actions/cache@v5
+        with:
+          path: ~/.cargo/bin/bpf-linker
+          key: >-
+            aether-optext-bpf-linker-
+            ${{ runner.os }}-
+            ${{ runner.arch }}-
+            ${{ env.BPF_LINKER_VERSION }}-
+            ${{ env.EBPF_TOOLCHAIN }}
+
+      - name: Install bpf-linker
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ ! -x "${HOME}/.cargo/bin/bpf-linker" ]]; then
+            cargo +${EBPF_TOOLCHAIN} install \
+              --locked \
+              --version "${BPF_LINKER_VERSION}" \
+              bpf-linker
+          fi
+
+          bpf-linker --version
+
+      # ------------------------------------------------------------
+      # 6. 先编译 eBPF
+      #
+      # 仓库自己的 ebpf/.cargo/config.toml 已经指定：
+      #   target = bpfel-unknown-none
+      #   linker = bpf-linker
+      #
+      # 所以这里显式调用：
+      #   cargo +nightly build --target bpfel-unknown-none
+      #     --release -Zbuild-std=core
+      #
+      # 最终对象必须放到项目根目录：
+      #   ./ebpf_target.o
+      #
+      # 因为 src/bpf.rs 使用：
+      #   include_bytes!(.../ebpf_target.o)
+      # ------------------------------------------------------------
+      - name: Build eBPF object
+        working-directory: ebpf
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cargo +${EBPF_TOOLCHAIN} build \
+            --target bpfel-unknown-none \
+            --release \
+            -Zbuild-std=core
+
+          EBPF_BIN="${GITHUB_WORKSPACE}/ebpf/target/bpfel-unknown-none/release/aether-ebpf"
+          EBPF_OBJ="${GITHUB_WORKSPACE}/ebpf_target.o"
+
+          if [[ ! -f "${EBPF_BIN}" ]]; then
+            echo "::error::eBPF binary was not generated: ${EBPF_BIN}"
+            exit 1
+          fi
+
+          cp "${EBPF_BIN}" "${EBPF_OBJ}"
+
+          if [[ ! -f "${EBPF_OBJ}" ]]; then
+            echo "::error::Failed to create ${EBPF_OBJ}"
+            exit 1
+          fi
+
+          echo "Generated eBPF object:"
+          ls -lh "${EBPF_OBJ}"
+
+      # ------------------------------------------------------------
+      # 7. 预取主程序依赖
+      #
+      # 不是必须，但第一次构建失败时日志更清楚，也能让依赖下载
+      # 与真正 build 分开，配合上面的 Cargo cache 更稳定。
+      # ------------------------------------------------------------
+      - name: Fetch Rust dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cargo fetch --locked
+
+      # ------------------------------------------------------------
+      # 8. 使用项目官方 build.py
+      #
+      # build.py 会：
+      #   - 自动检测 ANDROID_NDK_HOME
+      #   - 创建 .cargo/config.toml
+      #   - 设置 Android clang linker
+      #   - cargo build --target aarch64-linux-android --release
+      #   - 将 binary 复制到 magisk_module/
+      #   - 更新 module.prop
+      #   - 打包 out/Aether-OptExt_*.zip
+      #
+      # 因为前面已经生成 ebpf_target.o，所以 build.py 不会尝试走
+      # Windows/WSL 的 eBPF 生成分支。
+      # ------------------------------------------------------------
+      - name: Build Magisk KernelSU module
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python3 --version
+          cargo --version
+          rustc --version
+
+          echo "ANDROID_NDK_HOME=${ANDROID_NDK_HOME}"
+          echo "RUST_TARGET=${RUST_TARGET}"
+
+          python3 build.py
+
+      # ------------------------------------------------------------
+      # 9. 验证最终 ZIP
+      #
+      # 防止 build.py 日后修改后悄悄产出空包/错误结构。
+      # ------------------------------------------------------------
+      - name: Verify package
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          shopt -s nullglob
+          packages=(out/Aether-OptExt_*.zip)
+
+          if (( ${#packages[@]} != 1 )); then
+            echo "::error::Expected exactly one Aether-OptExt ZIP, found ${#packages[@]}"
+            printf '%s\n' "${packages[@]:-<none>}"
+            exit 1
+          fi
+
+          PACKAGE="${packages[0]}"
+
+          echo "Package: ${PACKAGE}"
+          ls -lh "${PACKAGE}"
+
+          echo
+          echo "ZIP contents:"
+          unzip -l "${PACKAGE}"
+
+          echo
+          echo "Required files:"
+          unzip -l "${PACKAGE}" | grep -E \
+            '(^|/)aether-optext$|(^|/)module\.prop$|(^|/)service\.sh$|(^|/)customize\.sh$'
+
+      # ------------------------------------------------------------
+      # 10. GitHub Actions Artifact
+      # ------------------------------------------------------------
+      - name: Upload module
+        uses: actions/upload-artifact@v4
+        with:
+          name: Aether-OptExt-${{ github.sha }}
+          path: out/Aether-OptExt_*.zip
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
+
+      # 同时上传日志/二进制信息，方便排查 CI 问题。
+      - name: Upload build metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: Aether-OptExt-build-info-${{ github.sha }}
+          path: |
+            ebpf_target.o
+            target/aarch64-linux-android/release/aether-optext
+          if-no-files-found: warn
+          compression-level: 0
+          retention-days: 7
+```
