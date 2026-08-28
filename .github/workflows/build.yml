@@ -14,7 +14,7 @@ permissions:
 
 env:
   RUST_TARGET: aarch64-linux-android
-  EBPF_TOOLCHAIN: nightly-2025-02-20
+  EBPF_TOOLCHAIN: nightly
   BPF_LINKER_VERSION: 0.9.13
   ANDROID_NDK_VERSION: 28.2.13676358
 jobs:
@@ -107,13 +107,17 @@ jobs:
             aether-optext-rust-
             ${{ runner.os }}-
             ${{ runner.arch }}-
-            stable-
             ${{ env.RUST_TARGET }}-
-            nightly-${{ env.EBPF_TOOLCHAIN }}-
+            nightly-
+            ${{ env.BPF_LINKER_VERSION }}-
             ndk-${{ env.ANDROID_NDK_VERSION }}-
-            ${{ hashFiles('Cargo.lock', 'Cargo.toml', 'ebpf/Cargo.toml', 'ebpf/.cargo/config.toml') }}
-          restore-keys: |
-            aether-optext-rust-${{ runner.os }}-${{ runner.arch }}-stable-${{ env.RUST_TARGET }}-nightly-${{ env.EBPF_TOOLCHAIN }}-ndk-${{ env.ANDROID_NDK_VERSION }}-
+            ${{ hashFiles(
+              'source/Cargo.toml',
+              'source/Cargo.lock',
+              'source/ebpf/Cargo.toml',
+              'source/ebpf/Cargo.lock',
+              'source/ebpf/.cargo/config.toml'
+            ) }}
 
       # ------------------------------------------------------------
       # 5. 单独缓存 bpf-linker
