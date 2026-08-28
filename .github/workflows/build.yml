@@ -248,8 +248,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
+      
+          SRC="${GITHUB_WORKSPACE}/source"
+      
+          cd "${SRC}"
+      
           cargo fetch --locked
+      
+          cd "${SRC}/ebpf"
+      
+          cargo +${EBPF_TOOLCHAIN} fetch --locked
 
       # ------------------------------------------------------------
       # 8. 使用项目官方 build.py
