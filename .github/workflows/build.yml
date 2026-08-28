@@ -82,8 +82,7 @@ jobs:
           echo "ANDROID_NDK_ROOT=${NDK_HOME}" >> "${GITHUB_ENV}"
 
           echo "Installed NDK:"
-          "${NDK_HOME}/source.properties"
-
+          cat "${NDK_HOME}/source.properties"
       # ------------------------------------------------------------
       # 4. Rust / Cargo 缓存
       #
