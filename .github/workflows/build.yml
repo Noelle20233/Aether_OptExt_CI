@@ -169,11 +169,44 @@ jobs:
       # 因为 src/bpf.rs 使用：
       #   include_bytes!(.../ebpf_target.o)
       # ------------------------------------------------------------
-      - name: Build eBPF object
-        working-directory: ebpf
+      - name: Verify repository layout
         shell: bash
         run: |
           set -euo pipefail
+
+          echo "GITHUB_WORKSPACE=${GITHUB_WORKSPACE}"
+          echo
+          echo "Repository root:"
+          pwd
+          ls -la
+
+          echo
+          echo "Top-level directories:"
+          find . -maxdepth 2 -type d -print | sort
+
+          echo
+          echo "Checking required Aether files..."
+
+          test -f "${GITHUB_WORKSPACE}/Cargo.toml"
+          test -f "${GITHUB_WORKSPACE}/build.py"
+          test -d "${GITHUB_WORKSPACE}/ebpf"
+          test -f "${GITHUB_WORKSPACE}/ebpf/Cargo.toml"
+
+          echo "Repository layout OK."
+
+      - name: Build eBPF object
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cd "${GITHUB_WORKSPACE}/ebpf"
+
+          echo "Working directory:"
+          pwd
+
+          echo
+          echo "eBPF project:"
+          ls -la
 
           cargo +${EBPF_TOOLCHAIN} build \
             --target bpfel-unknown-none \
@@ -183,21 +216,15 @@ jobs:
           EBPF_BIN="${GITHUB_WORKSPACE}/ebpf/target/bpfel-unknown-none/release/aether-ebpf"
           EBPF_OBJ="${GITHUB_WORKSPACE}/ebpf_target.o"
 
-          if [[ ! -f "${EBPF_BIN}" ]]; then
-            echo "::error::eBPF binary was not generated: ${EBPF_BIN}"
-            exit 1
-          fi
+          test -f "${EBPF_BIN}"
 
           cp "${EBPF_BIN}" "${EBPF_OBJ}"
 
-          if [[ ! -f "${EBPF_OBJ}" ]]; then
-            echo "::error::Failed to create ${EBPF_OBJ}"
-            exit 1
-          fi
+          test -f "${EBPF_OBJ}"
 
-          echo "Generated eBPF object:"
+          echo
+          echo "Generated:"
           ls -lh "${EBPF_OBJ}"
-
       # ------------------------------------------------------------
       # 7. 预取主程序依赖
       #
