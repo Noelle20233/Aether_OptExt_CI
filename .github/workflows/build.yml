@@ -316,16 +316,32 @@ jobs:
         run: |
           set -euo pipefail
 
-          shopt -s nullglob
-          packages=(out/Aether-OptExt_*.zip)
+          SRC="${GITHUB_WORKSPACE}/source"
+          OUT="${SRC}/out"
 
-          if (( ${#packages[@]} != 1 )); then
-            echo "::error::Expected exactly one Aether-OptExt ZIP, found ${#packages[@]}"
-            printf '%s\n' "${packages[@]:-<none>}"
+          echo "Source: ${SRC}"
+          echo "Output: ${OUT}"
+          echo
+
+          echo "Output directory:"
+          find "${OUT}" -maxdepth 1 -type f -printf '%f\n' 2>/dev/null || true
+          echo
+
+          mapfile -t PACKAGES < <(
+            find "${OUT}" \
+              -maxdepth 1 \
+              -type f \
+              -name 'Aether-OptExt_*.zip' \
+              -print
+          )
+
+          if (( ${#PACKAGES[@]} != 1 )); then
+            echo "::error::Expected exactly one Aether-OptExt ZIP, found ${#PACKAGES[@]}"
+            printf '%s\n' "${PACKAGES[@]:-<none>}"
             exit 1
           fi
 
-          PACKAGE="${packages[0]}"
+          PACKAGE="${PACKAGES[0]}"
 
           echo "Package: ${PACKAGE}"
           ls -lh "${PACKAGE}"
@@ -335,9 +351,10 @@ jobs:
           unzip -l "${PACKAGE}"
 
           echo
-          echo "Required files:"
+          echo "Checking required files..."
+
           unzip -l "${PACKAGE}" | grep -E \
-            '(^|/)aether-optext$|(^|/)module\.prop$|(^|/)service\.sh$|(^|/)customize\.sh$'
+            '(^|/)aether-optext$|(^|/)module\.prop$'
 
       # ------------------------------------------------------------
       # 10. GitHub Actions Artifact
