@@ -174,30 +174,39 @@ jobs:
       # 因为 src/bpf.rs 使用：
       #   include_bytes!(.../ebpf_target.o)
       # ------------------------------------------------------------
-      - name: Verify repository layout
+
+      - name: Verify source tree
         shell: bash
         run: |
           set -euo pipefail
 
-          echo "GITHUB_WORKSPACE=${GITHUB_WORKSPACE}"
+          SRC="${GITHUB_WORKSPACE}/source"
+
+          echo "SOURCE=${SRC}"
           echo
-          echo "Repository root:"
-          pwd
-          ls -la
+
+          if [[ ! -d "${SRC}" ]]; then
+            echo "::error::Source directory does not exist: ${SRC}"
+            exit 1
+          fi
+
+          echo "Source tree:"
+          find "${SRC}" -maxdepth 2 -type f -print | sort
+          echo
+
+          # 当前项目构建所必须的目录/文件
+          test -d "${SRC}/ebpf"
+          test -d "${SRC}/src"
+          test -d "${SRC}/magisk_module"
+          test -f "${SRC}/build.py"
+
+          # eBPF Cargo 项目
+          test -f "${SRC}/ebpf/Cargo.toml"
+          test -d "${SRC}/ebpf/.cargo"
 
           echo
-          echo "Top-level directories:"
-          find . -maxdepth 2 -type d -print | sort
+          echo "Required Aether OptExt files found."
 
-          echo
-          echo "Checking required Aether files..."
-
-          test -f "${GITHUB_WORKSPACE}/Cargo.toml"
-          test -f "${GITHUB_WORKSPACE}/build.py"
-          test -d "${GITHUB_WORKSPACE}/ebpf"
-          test -f "${GITHUB_WORKSPACE}/ebpf/Cargo.toml"
-
-          echo "Repository layout OK."
 
       - name: Build eBPF object
         shell: bash
