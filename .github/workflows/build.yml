@@ -33,8 +33,13 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+      - name: Checkout Aether OptExt source
         uses: actions/checkout@v5
+        with:
+          repository: NetizenNemo/Aether_OptExt
+          ref: main
+          path: source
+          fetch-depth: 1
 
       # ------------------------------------------------------------
       # 1. Rust stable：用于编译 Android 用户态主程序
