@@ -319,10 +319,6 @@ jobs:
           SRC="${GITHUB_WORKSPACE}/source"
           OUT="${SRC}/out"
 
-          echo "Source: ${SRC}"
-          echo "Output: ${OUT}"
-          echo
-
           mapfile -t PACKAGES < <(
             find "${OUT}" \
               -maxdepth 1 \
@@ -341,13 +337,6 @@ jobs:
 
           echo "Package: ${PACKAGE}"
           ls -lh "${PACKAGE}"
-
-          echo
-          echo "ZIP contents:"
-          unzip -l "${PACKAGE}"
-
-          echo
-          echo "Verifying required files..."
 
           ZIP_FILES="$(mktemp)"
           unzip -Z1 "${PACKAGE}" > "${ZIP_FILES}"
@@ -373,22 +362,11 @@ jobs:
 
           echo "All required files are present."
 
-          echo
-          echo "Module binary:"
-          unzip -Z1 "${PACKAGE}" | grep -Fx "aether-optext"
-
-          echo
-          echo "module.prop:"
-          unzip -p "${PACKAGE}" "module.prop"
-
-      # ------------------------------------------------------------
-      # 10. GitHub Actions Artifact
-      # ------------------------------------------------------------
       - name: Upload module
         uses: actions/upload-artifact@v4
         with:
           name: Aether-OptExt-${{ github.sha }}
-          path: out/Aether-OptExt_*.zip
+          path: source/out/Aether-OptExt_*.zip
           if-no-files-found: error
           compression-level: 0
           retention-days: 30
