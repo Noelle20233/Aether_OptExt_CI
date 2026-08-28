@@ -13,21 +13,10 @@ permissions:
   contents: read
 
 env:
-  # Aether OptExt 的主程序要求 Android ARM64。
   RUST_TARGET: aarch64-linux-android
-
-  # README 要求 eBPF 构建使用 LLVM 19。
-  # Rust 1.82 开始使用 LLVM 19，因此这里固定到该时代的 nightly，
-  # 避免当前 nightly 已经升级到 LLVM 23+ 后与旧版 bpf-linker/aya-ebpf 环境不匹配。
-  EBPF_TOOLCHAIN: nightly-2024-10-18
-
-  # 与 LLVM 19 兼容的 bpf-linker。
+  EBPF_TOOLCHAIN: nightly-2025-02-20
   BPF_LINKER_VERSION: 0.9.13
-
-  # 目前 GitHub Ubuntu Runner 上可用且成熟的 NDK。
-  # Aether build.py 只要求标准 Android NDK clang 链接器。
   ANDROID_NDK_VERSION: 28.2.13676358
-
 jobs:
   build:
     runs-on: ubuntu-latest
