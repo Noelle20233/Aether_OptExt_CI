@@ -10,7 +10,7 @@ on:
       - main
 
 permissions:
-  contents: read
+  contents: write
 
 env:
   RUST_TARGET: aarch64-linux-android
@@ -382,3 +382,97 @@ jobs:
           if-no-files-found: warn
           compression-level: 0
           retention-days: 7
+
+      - name: Create GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          SRC="${GITHUB_WORKSPACE}/source"
+          OUT="${SRC}/out"
+
+          # 获取本次真正编译的上游仓库 commit
+          UPSTREAM_COMMIT="$(git -C "${SRC}" rev-parse HEAD)"
+          UPSTREAM_SHORT="$(git -C "${SRC}" rev-parse --short=12 HEAD)"
+          UPSTREAM_SUBJECT="$(git -C "${SRC}" log -1 --format=%s)"
+          UPSTREAM_AUTHOR="$(git -C "${SRC}" log -1 --format='%an <%ae>')"
+          UPSTREAM_DATE="$(git -C "${SRC}" log -1 --format=%cI)"
+
+          TAG="upstream-${UPSTREAM_SHORT}"
+          TITLE="Aether OptExt ${UPSTREAM_SHORT}"
+
+          PACKAGE="$(find "${OUT}" \
+            -maxdepth 1 \
+            -type f \
+            -name 'Aether-OptExt_*.zip' \
+            -print -quit)"
+
+          if [[ -z "${PACKAGE}" ]]; then
+            echo "::error::Aether OptExt package not found."
+            exit 1
+          fi
+
+          echo "Upstream commit : ${UPSTREAM_COMMIT}"
+          echo "Upstream short  : ${UPSTREAM_SHORT}"
+          echo "Commit subject  : ${UPSTREAM_SUBJECT}"
+          echo "Commit author   : ${UPSTREAM_AUTHOR}"
+          echo "Commit date     : ${UPSTREAM_DATE}"
+          echo "Release tag     : ${TAG}"
+          echo "Package         : ${PACKAGE}"
+
+          NOTES="$(cat <<EOF
+          ## Aether OptExt
+
+          Automated build of upstream commit:
+
+          **${UPSTREAM_COMMIT}**
+
+          - Commit: ${UPSTREAM_SUBJECT}
+          - Author: ${UPSTREAM_AUTHOR}
+          - Date: ${UPSTREAM_DATE}
+          - Upstream repository: https://github.com/NetizenNemo/Aether_OptExt/commit/${UPSTREAM_COMMIT}
+
+          This release was built automatically by the CI workflow.
+
+          ### Build environment
+
+          - CI repository: \`${GITHUB_REPOSITORY}\`
+          - CI workflow: \`${GITHUB_WORKFLOW}\`
+          - CI run: \`${GITHUB_RUN_ID}\`
+          - Android NDK: \`${ANDROID_NDK_VERSION}\`
+          - eBPF Rust toolchain: \`${EBPF_TOOLCHAIN}\`
+          EOF
+          )"
+
+          # 同一个上游 commit 使用同一个 tag。
+          # 首次构建：创建 Release 并上传 ZIP。
+          # 重复构建：更新 Release，然后覆盖同名 ZIP。
+          if gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            echo "Release ${TAG} already exists."
+
+            gh release edit "${TAG}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --title "${TITLE}" \
+              --notes "${NOTES}"
+
+            gh release upload "${TAG}" \
+              "${PACKAGE}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --clobber
+          else
+            echo "Creating release ${TAG}..."
+
+            gh release create "${TAG}" \
+              "${PACKAGE}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --title "${TITLE}" \
+              --notes "${NOTES}" \
+              --target "${GITHUB_SHA}"
+          fi
+
+          echo
+          echo "Release:"
+          gh release view "${TAG}" \
+            --repo "${GITHUB_REPOSITORY}"
