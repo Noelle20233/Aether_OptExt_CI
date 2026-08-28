@@ -323,10 +323,6 @@ jobs:
           echo "Output: ${OUT}"
           echo
 
-          echo "Output directory:"
-          find "${OUT}" -maxdepth 1 -type f -printf '%f\n' 2>/dev/null || true
-          echo
-
           mapfile -t PACKAGES < <(
             find "${OUT}" \
               -maxdepth 1 \
@@ -351,10 +347,39 @@ jobs:
           unzip -l "${PACKAGE}"
 
           echo
-          echo "Checking required files..."
+          echo "Verifying required files..."
 
-          unzip -l "${PACKAGE}" | grep -E \
-            '(^|/)aether-optext$|(^|/)module\.prop$'
+          ZIP_FILES="$(mktemp)"
+          unzip -Z1 "${PACKAGE}" > "${ZIP_FILES}"
+
+          required_files=(
+            "service.sh"
+            "gamelist"
+            "module.prop"
+            "customize.sh"
+            "aether-optext"
+            "threads.json"
+            "META-INF/com/google/android/updater-script"
+            "META-INF/com/google/android/update-binary"
+            "Flags/README.md"
+          )
+
+          for file in "${required_files[@]}"; do
+            if ! grep -Fxq "${file}" "${ZIP_FILES}"; then
+              echo "::error::Required file missing from ZIP: ${file}"
+              exit 1
+            fi
+          done
+
+          echo "All required files are present."
+
+          echo
+          echo "Module binary:"
+          unzip -Z1 "${PACKAGE}" | grep -Fx "aether-optext"
+
+          echo
+          echo "module.prop:"
+          unzip -p "${PACKAGE}" "module.prop"
 
       # ------------------------------------------------------------
       # 10. GitHub Actions Artifact
