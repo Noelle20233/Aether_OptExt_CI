@@ -274,20 +274,22 @@ jobs:
       # 因为前面已经生成 ebpf_target.o，所以 build.py 不会尝试走
       # Windows/WSL 的 eBPF 生成分支。
       # ------------------------------------------------------------
-      - name: Build Magisk KernelSU module
+      - name: Build module
         shell: bash
         run: |
           set -euo pipefail
 
-          python3 --version
-          cargo --version
-          rustc --version
+          SRC="${GITHUB_WORKSPACE}/source"
 
-          echo "ANDROID_NDK_HOME=${ANDROID_NDK_HOME}"
-          echo "RUST_TARGET=${RUST_TARGET}"
+          echo "Source: ${SRC}"
+          echo "Build script: ${SRC}/build.py"
+
+          test -f "${SRC}/build.py"
+          test -f "${SRC}/ebpf_target.o"
+
+          cd "${SRC}"
 
           python3 build.py
-
       # ------------------------------------------------------------
       # 9. 验证最终 ZIP
       #
