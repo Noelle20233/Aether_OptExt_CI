@@ -213,31 +213,37 @@ jobs:
         run: |
           set -euo pipefail
 
-          cd "${GITHUB_WORKSPACE}/ebpf"
+          SRC="${GITHUB_WORKSPACE}/source"
 
-          echo "Working directory:"
-          pwd
+          echo "Source: ${SRC}"
+          echo "Building from: ${SRC}/ebpf"
 
-          echo
-          echo "eBPF project:"
-          ls -la
+          test -d "${SRC}/ebpf"
+          test -f "${SRC}/ebpf/Cargo.toml"
+
+          cd "${SRC}/ebpf"
 
           cargo +${EBPF_TOOLCHAIN} build \
             --target bpfel-unknown-none \
             --release \
             -Zbuild-std=core
 
-          EBPF_BIN="${GITHUB_WORKSPACE}/ebpf/target/bpfel-unknown-none/release/aether-ebpf"
-          EBPF_OBJ="${GITHUB_WORKSPACE}/ebpf_target.o"
+          EBPF_BIN="${SRC}/ebpf/target/bpfel-unknown-none/release/aether-ebpf"
+          EBPF_OBJ="${SRC}/ebpf_target.o"
 
-          test -f "${EBPF_BIN}"
+          if [[ ! -f "${EBPF_BIN}" ]]; then
+            echo "::error::eBPF binary not found: ${EBPF_BIN}"
+            exit 1
+          fi
 
           cp "${EBPF_BIN}" "${EBPF_OBJ}"
 
-          test -f "${EBPF_OBJ}"
+          if [[ ! -f "${EBPF_OBJ}" ]]; then
+            echo "::error::Failed to create: ${EBPF_OBJ}"
+            exit 1
+          fi
 
-          echo
-          echo "Generated:"
+          echo "eBPF object generated:"
           ls -lh "${EBPF_OBJ}"
       # ------------------------------------------------------------
       # 7. 预取主程序依赖
